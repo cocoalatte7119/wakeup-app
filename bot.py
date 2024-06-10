@@ -1,69 +1,48 @@
 import discord
 from discord.ext import commands, tasks
-import datetime
 import asyncio
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-TOKEN = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents.default()
-intents.messages = True
-intents.guilds = True
-intents.voice_states = True
+intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-alarms = {}  # {user_id: (time, voice_channel, alert_task)}
-
 @bot.event
 async def on_ready():
-    print(f'{bot.user} has connected to Discord!')
+    print(f'Logged in as {bot.user.name}')
 
-@bot.command(name='setalarm')
+@bot.command()
 async def set_alarm(ctx, time: str):
-    """Sets an alarm for the user at the specified time (HH:MM)"""
     user_id = ctx.author.id
-    hour, minute = map(int, time.split(':'))
+    alarms[user_id] = time
+    await ctx.send(f'Alarm set for {time}')
+    bot.loop.create_task(create_alarm_channel(ctx, user_id, time))
 
-    alarm_time = datetime.time(hour, minute)
-    now = datetime.datetime.now().time()
+async def create_alarm_channel(ctx, user_id, alarm_time):
+    guild = ctx.guild
+    alarm_channel = await guild.create_voice_channel(f'{ctx.author.name}-alarm')
+    
+    # Calculate sleep time
+    now = datetime.datetime.now()
+    alarm_time_dt = datetime.datetime.strptime(alarm_time, '%H:%M')
+    alarm_time_dt = now.replace(hour=alarm_time_dt.hour, minute=alarm_time_dt.minute, second=0, microsecond=0)
+    sleep_time = (alarm_time_dt - now).total_seconds()
+    
+    if sleep_time < 0:
+        sleep_time += 86400  # Add 24 hours if the time is past today
+    
+    await asyncio.sleep(sleep_time)
+    
+    member = guild.get_member(user_id)
+    if member.voice:
+        await member.move_to(alarm_channel)
+        await play_alarm_sound(alarm_channel)
 
-    delta = datetime.datetime.combine(datetime.date.today(), alarm_time) - datetime.datetime.combine(datetime.date.today(), now)
-    if delta.total_seconds() < 0:
-        delta += datetime.timedelta(days=1)
-
-    voice_channel = await ctx.guild.create_voice_channel(name=f'Alarm for {ctx.author.name}')
-    await ctx.send(f'Alarm set for {time}. You will be moved to {voice_channel.name} at the set time.')
-
-    async def alarm_task():
-        await asyncio.sleep(delta.total_seconds())
-        if ctx.author.voice:
-            await ctx.author.move_to(voice_channel)
-        await play_alarm_sound(voice_channel)
-
-    task = bot.loop.create_task(alarm_task())
-    alarms[user_id] = (alarm_time, voice_channel, task)
-
-async def play_alarm_sound(voice_channel):
-    """Plays the alarm sound in the specified voice channel"""
-    vc = await voice_channel.connect()
-    vc.play(discord.FFmpegPCMAudio('alarm_sound.mp3'), after=lambda e: print('done', e))
+async def play_alarm_sound(channel):
+    vc = await channel.connect()
+    vc.play(discord.FFmpegPCMAudio('alarm.mp3'), after=lambda e: print('done', e))
     while vc.is_playing():
         await asyncio.sleep(1)
     await vc.disconnect()
 
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if member.id in alarms:
-        alarm_time, voice_channel, task = alarms[member.id]
-        if after.channel != voice_channel:
-            await asyncio.sleep(60)  # Wait 60 seconds to check if user left the alarm channel
-            if member.voice and member.voice.channel == voice_channel:
-                return
-            await voice_channel.delete()
-            del alarms[member.id]
-
-bot.run(TOKEN)
+bot.run('YOUR_BOT_TOKEN')
