@@ -6,6 +6,7 @@ import os
 
 intents = discord.Intents.default()
 intents.members = True
+intents.message_content = True  # 必ず追加
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 alarms = {}
