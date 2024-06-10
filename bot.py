@@ -1,11 +1,14 @@
 import discord
 from discord.ext import commands, tasks
 import asyncio
+import datetime
+import os
 
 intents = discord.Intents.default()
 intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
+alarms = {}
 
 @bot.event
 async def on_ready():
@@ -45,4 +48,8 @@ async def play_alarm_sound(channel):
         await asyncio.sleep(1)
     await vc.disconnect()
 
-bot.run('YOUR_BOT_TOKEN')
+bot_token = os.getenv('DISCORD_BOT_TOKEN')
+if bot_token is None:
+    raise ValueError("Discord bot token not set in environment variables")
+
+bot.run(bot_token)
